@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Documentation · SIM800C SMS Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <div class="brand-name">SIM800C</div>
+          <div class="brand-sub">SMS Manager</div>
+        </div>
+      </div>
+
+      {% include "_nav.html" %}
+
+      <section class="toc-panel">
+        <h2>On this page</h2>
+        <ul class="toc">
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#quickstart">Quick start</a></li>
+          <li><a href="#authentication">Authentication</a></li>
+          <li><a href="#port-detection">Port auto-detection</a></li>
+          <li><a href="#endpoints">API reference</a></li>
+          <li><a href="#examples">Integration examples</a></li>
+          <li><a href="#message-model">Message model</a></li>
+          <li><a href="#errors">Errors</a></li>
+          <li><a href="#polling">Receiving SMS</a></li>
+          <li><a href="#mock">Mock mode</a></li>
+          <li><a href="#configuration">Configuration</a></li>
+        </ul>
+      </section>
+
+      {% if mock_mode %}
+      <p class="hint mock-hint">Running in <strong>mock mode</strong> — no hardware required.</p>
+      {% endif %}
+    </aside>
+
+    <main class="main docs">
+      <header class="topbar">
+        <h1>Documentation</h1>
+        <div class="filters">
+          <a class="btn" href="/docs" target="_blank" rel="noopener">OpenAPI /docs</a>
+          <a class="btn" href="/">← Back to app</a>
+        </div>
+      </header>
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <p>
+          SIM800C SMS Manager is a self-hosted service that sends, receives and stores SMS
+          through a SIM800C GSM module. It exposes a JSON REST API and a web UI backed by the
+          same API, so anything you can do in the UI you can automate.
+        </p>
+        <ul class="doc-list">
+          <li><strong>Ingest</strong> — messages are pulled from the SIM card on a poll interval and stored in SQLite (<code>data/messages.db</code>).</li>
+          <li><strong>Send</strong> — <code>POST /api/sms/send</code> writes an outbound record and pushes the SMS through the modem.</li>
+          <li><strong>Discover</strong> — the serial port is <strong>auto-detected</strong>; no need to know which COM port the modem landed on.</li>
+          <li><strong>Inspect</strong> — signal, operator, IMEI and SIM state come from <code>/api/modem/status</code>.</li>
+        </ul>
+        <div class="callout">
+          Interactive OpenAPI documentation (try-it-out requests) is served at
+          <a href="/docs" target="_blank" rel="noopener">/docs</a> and the raw schema at
+          <a href="/openapi.json" target="_blank" rel="noopener">/openapi.json</a>.
+        </div>
+      </section>
+
+      <section id="quickstart">
+        <h2>Quick start</h2>
+        <pre class="code"><code>cd C:\SIM800C
+.\.venv\Scripts\Activate.ps1
+python run.py</code></pre>
+        <p>
+          The server starts on <code>http://localhost:8000</code> (host/port come from
+          <code>HOST</code> / <code>PORT</code>). With <code>SIM800C_PORT=auto</code> the
+          modem is located automatically at startup and on every reconnect.
+        </p>
+        <pre class="code"><code># health check — no auth required
+curl http://localhost:8000/api/health</code></pre>
+      </section>
+
+      <section id="authentication">
+        <h2>Authentication</h2>
+        <p>
+          Auth is optional. When <code>API_KEY</code> is set in <code>.env</code>, every
+          <code>/api/*</code> request must carry it in the <code>X-API-Key</code> header;
+          otherwise requests are accepted anonymously.
+        </p>
+        <pre class="code"><code>curl -H "X-API-Key: your-secret" http://localhost:8000/api/sms</code></pre>
+        <p>
+          A missing or wrong key returns
+          <code>401 {"detail": "Invalid or missing API key"}</code>.
+          The web UI prompts once and stores the key in <code>localStorage</code>.
+        </p>
+      </section>
+      <section id="port-detection">
+        <h2>Port auto-detection</h2>
+        <p>
+          Set <code>SIM800C_PORT=auto</code> (the default) and the service finds the port the
+          SIM800C is plugged into itself:
+        </p>
+        <ol class="doc-list numbered">
+          <li><strong>Signature scan</strong> — every serial port is scored from its USB identity (SIMCom/SIM800 strings, known USB-UART bridges: CP210x, CH340/CH341, FT232, PL2303). An unambiguous match is used immediately.</li>
+          <li><strong>AT probe</strong> — otherwise up to 6 candidate ports are opened at <code>SIM800C_BAUDRATE</code> and sent <code>AT</code>; the port answering <code>OK</code> wins.</li>
+          <li><strong>Re-detect</strong> — with an <code>auto</code> port, detection runs again on every connect, so replugging the modem on another port is handled.</li>
+        </ol>
+        <p>
+          Current configuration: <code>SIM800C_PORT={{ configured_port }}</code>
+          {% if auto_port %}<span class="pill pill-ok">auto-detect enabled</span>{% else %}<span class="pill">manual port</span>{% endif %}
+        </p>
+        <p>
+          Trigger detection manually with <code>POST /api/modem/detect</code> or inspect
+          scored candidates with <code>GET /api/modem/ports</code>. Set a concrete value
+          (e.g. <code>COM3</code>, <code>/dev/ttyUSB0</code>) to bypass detection entirely.
+        </p>
+      </section>
+
+      <section id="endpoints">
+        <h2>API reference</h2>
+        <p>Base URL: <code>http://localhost:8000</code>. All bodies are JSON.</p>
+        <div class="table-wrap">
+          <table class="endpoint-table">
+            <thead>
+              <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="method get">GET</span></td><td><code>/api/health</code></td><td>Liveness check (no auth)</td></tr>
+              <tr><td><span class="method get">GET</span></td><td><code>/api/modem/status</code></td><td>Connection, signal, operator, IMEI, SIM state</td></tr>
+              <tr><td><span class="method post">POST</span></td><td><code>/api/modem/connect</code></td><td>Open the serial port (auto-detects when port is <code>auto</code>)</td></tr>
+              <tr><td><span class="method post">POST</span></td><td><code>/api/modem/disconnect</code></td><td>Close the serial port</td></tr>
+              <tr><td><span class="method get">GET</span></td><td><code>/api/modem/ports</code></td><td>List serial ports with detection score/reason</td></tr>
+              <tr><td><span class="method post">POST</span></td><td><code>/api/modem/detect</code></td><td>Auto-detect the SIM800C port now</td></tr>
+              <tr><td><span class="method post">POST</span></td><td><code>/api/sms/send</code></td><td>Send an SMS <code>{"phone","message"}</code></td></tr>
+              <tr><td><span class="method get">GET</span></td><td><code>/api/sms</code></td><td>List stored messages (filters: <code>direction</code>, <code>phone</code>, <code>status</code>, <code>limit</code>, <code>offset</code>)</td></tr>
+              <tr><td><span class="method get">GET</span></td><td><code>/api/sms/{id}</code></td><td>Fetch one message</td></tr>
+              <tr><td><span class="method del">DELETE</span></td><td><code>/api/sms/{id}</code></td><td>Delete a message (and on the SIM if indexed)</td></tr>
+              <tr><td><span class="method post">POST</span></td><td><code>/api/sms/sync</code></td><td>Pull the SIM inbox into SQLite now</td></tr>
+              <tr><td><span class="method post">POST</span></td><td><code>/api/sms/inject</code></td><td>Simulate inbound SMS (mock mode only)</td></tr>
+              <tr><td><span class="method get">GET</span></td><td><code>/api/stats</code></td><td>Counts: total/inbound/outbound/unread/failed</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section id="examples">
+        <h2>Integration examples</h2>
+
+        <h3>Send an SMS</h3>
+        <pre class="code"><code>curl -X POST http://localhost:8000/api/sms/send \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-secret" \
+  -d '{"phone": "+15551234567", "message": "Hello from SIM800C"}'</code></pre>
+        <pre class="code"><code>Invoke-RestMethod -Method POST -Uri http://localhost:8000/api/sms/send `
+  -ContentType "application/json" `
+  -Headers @{ "X-API-Key" = "your-secret" } `
+  -Body '{"phone":"+15551234567","message":"Hello from SIM800C"}'</code></pre>
+        <pre class="code"><code>const res = await fetch("http://localhost:8000/api/sms/send", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "X-API-Key": "your-secret" },
+  body: JSON.stringify({ phone: "+15551234567", message: "Hello from SIM800C" }),
+});
+const message = await res.json();   // { id, status: "sent", ... }</code></pre>
+
+        <h3>List messages</h3>
+        <pre class="code"><code>curl "http://localhost:8000/api/sms?direction=inbound&amp;limit=20"</code></pre>
+
+        <h3>Detect the modem port</h3>
+        <pre class="code"><code>curl -X POST http://localhost:8000/api/modem/detect -H "X-API-Key: your-secret"
+
+# → {"device":"COM5","description":"SIMCom SIM800C","hwid":"VID_1A86&PID_7523",
+#    "method":"signature","score":120,"reason":"SIM800/SIMCom identifier found, WCH CH340 USB-UART bridge"}</code></pre>
+
+        <h3>Modem status</h3>
+        <pre class="code"><code>curl http://localhost:8000/api/modem/status -H "X-API-Key: your-secret"
+
+# → {"connected":true,"mock":false,"port":"COM5","signal_rssi":21,
+#    "network_registered":true,"operator":"Vodafone","imei":"867...","sim_ready":true}</code></pre>
+      </section>
+
+      <section id="message-model">
+        <h2>Message model</h2>
+        <div class="table-wrap">
+          <table class="endpoint-table">
+            <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>id</code></td><td>int</td><td>Database id</td></tr>
+              <tr><td><code>direction</code></td><td>string</td><td><code>inbound</code> or <code>outbound</code></td></tr>
+              <tr><td><code>phone</code></td><td>string</td><td>Sender (inbound) or recipient (outbound), E.164 recommended</td></tr>
+              <tr><td><code>body</code></td><td>string</td><td>Message text (max 1600 chars)</td></tr>
+              <tr><td><code>status</code></td><td>string</td><td><code>unread</code>/<code>read</code> (in), <code>sending</code>/<code>sent</code>/<code>failed</code> (out)</td></tr>
+              <tr><td><code>modem_index</code></td><td>int?</td><td>Storage index on the SIM card (inbound only)</td></tr>
+              <tr><td><code>created_at</code> / <code>updated_at</code></td><td>string</td><td>UTC ISO-8601 timestamps</td></tr>
+              <tr><td><code>error</code></td><td>string?</td><td>Failure reason for <code>failed</code> messages</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section id="errors">
+        <h2>Errors</h2>
+        <p>Errors are returned as JSON with a <code>detail</code> string:</p>
+        <pre class="code"><code>{"detail": "Modem is not connected"}</code></pre>
+        <div class="table-wrap">
+          <table class="endpoint-table">
+            <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>401</code></td><td>Missing/invalid <code>X-API-Key</code></td></tr>
+              <tr><td><code>404</code></td><td>Message not found, or no SIM800C detected (<code>/api/modem/detect</code>)</td></tr>
+              <tr><td><code>422</code></td><td>Validation error (missing/invalid fields)</td></tr>
+              <tr><td><code>502</code></td><td>Modem reported an error (send/sync failed)</td></tr>
+              <tr><td><code>503</code></td><td>Modem not connected / port cannot be opened</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="polling">
+        <h2>Receiving SMS</h2>
+        <p>
+          Inbound SMS is imported automatically every
+          <code>{{ poll_seconds }}</code> s
+          (<code>SIM800C_POLL_SECONDS</code>, <code>0</code> disables). To react to new
+          messages from your own service, poll the API:
+        </p>
+        <pre class="code"><code>GET /api/sms?direction=inbound&amp;status=unread</code></pre>
+        <p>
+          Keep a cursor on <code>id</code> (messages are returned newest-first) and mark
+          processing by deleting or re-querying. You can also force an import any time with
+          <code>POST /api/sms/sync</code>. The service auto-reconnects the modem when it
+          drops (<code>SIM800C_AUTO_RECONNECT=true</code>).
+        </p>
+      </section>
+
+      <section id="mock">
+        <h2>Mock mode</h2>
+        <p>
+          With <code>SIM800C_MOCK=true</code> no hardware is touched: a simulated modem
+          connects instantly, three sample messages are seeded, sending succeeds after a
+          short delay, and the <strong>Inject inbound SMS</strong> tool appears in the UI
+          (<code>POST /api/sms/inject</code>). Use it for development and demos.
+        </p>
+      </section>
+
+      <section id="configuration">
+        <h2>Configuration</h2>
+        <p>All settings come from <code>.env</code> (see <code>.env.example</code>).</p>
+        <div class="table-wrap">
+          <table class="endpoint-table">
+            <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>SIM800C_PORT</code></td><td><code>auto</code></td><td>Serial port; <code>auto</code> detects the port the modem is plugged into</td></tr>
+              <tr><td><code>SIM800C_BAUDRATE</code></td><td><code>115200</code></td><td>Serial baud rate</td></tr>
+              <tr><td><code>SIM800C_TIMEOUT</code></td><td><code>5</code></td><td>AT response timeout in seconds</td></tr>
+              <tr><td><code>SIM800C_MOCK</code></td><td><code>true</code></td><td>Run without hardware</td></tr>
+              <tr><td><code>SIM800C_POLL_SECONDS</code></td><td><code>15</code></td><td>Inbox auto-sync interval (<code>0</code> = off)</td></tr>
+              <tr><td><code>SIM800C_AUTO_RECONNECT</code></td><td><code>true</code></td><td>Reconnect from the poller when the modem drops</td></tr>
+              <tr><td><code>HOST</code> / <code>PORT</code></td><td><code>0.0.0.0</code> / <code>8000</code></td><td>HTTP bind address</td></tr>
+              <tr><td><code>API_KEY</code></td><td><em>empty</em></td><td>Enables <code>X-API-Key</code> auth when set</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          After changing <code>.env</code>, restart <code>python run.py</code> for the new
+          values to take effect.
+        </div>
+      </section>
+    </main>
+  </div>
+
+</body>
+</html>

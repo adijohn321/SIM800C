@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SIM800C SMS Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <div class="brand-name">SIM800C</div>
+          <div class="brand-sub">SMS Manager</div>
+        </div>
+      </div>
+
+      {% include "_nav.html" %}
+
+      <section class="modem-panel">
+        <h2>Modem</h2>
+        <div id="modem-status" class="status-block">
+          <div class="status-row"><span>State</span><strong id="st-connected">—</strong></div>
+          <div class="status-row"><span>Port</span><strong id="st-port">—</strong></div>
+          <div class="status-row"><span>Signal</span><strong id="st-signal">—</strong></div>
+          <div class="status-row"><span>Network</span><strong id="st-network">—</strong></div>
+          <div class="status-row"><span>Operator</span><strong id="st-operator">—</strong></div>
+          <div class="status-row"><span>IMEI</span><strong id="st-imei" class="mono">—</strong></div>
+        </div>
+        <div class="btn-row">
+          <button type="button" id="btn-connect" class="btn btn-primary">Connect</button>
+          <button type="button" id="btn-disconnect" class="btn">Disconnect</button>
+        </div>
+        <button type="button" id="btn-sync" class="btn btn-block">Sync inbox from SIM</button>
+        <button type="button" id="btn-detect" class="btn btn-block" title="Scan serial ports for the SIM800C">Auto-detect port</button>
+        {% if mock_mode %}
+        <p class="hint mock-hint">Running in <strong>mock mode</strong> — no hardware required.</p>
+        {% endif %}
+      </section>
+
+      <section class="stats-panel">
+        <h2>Stats</h2>
+        <div class="stats-grid">
+          <div><span id="stat-total">0</span><label>Total</label></div>
+          <div><span id="stat-inbound">0</span><label>In</label></div>
+          <div><span id="stat-outbound">0</span><label>Out</label></div>
+          <div><span id="stat-unread">0</span><label>Unread</label></div>
+        </div>
+      </section>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Messages</h1>
+        <div class="filters">
+          <select id="filter-direction">
+            <option value="">All directions</option>
+            <option value="inbound">Inbound</option>
+            <option value="outbound">Outbound</option>
+          </select>
+          <input type="search" id="filter-phone" placeholder="Filter by phone…" />
+          <button type="button" id="btn-refresh" class="btn">Refresh</button>
+        </div>
+      </header>
+
+      <section class="compose" aria-label="Compose SMS">
+        <h2>Compose</h2>
+        <form id="compose-form">
+          <div class="compose-grid">
+            <label>
+              Phone number
+              <input type="tel" id="compose-phone" name="phone" placeholder="+15551234567" required />
+            </label>
+            <label class="compose-body">
+              Message
+              <textarea id="compose-message" name="message" rows="3" maxlength="1600" placeholder="Write your SMS…" required></textarea>
+            </label>
+          </div>
+          <div class="compose-actions">
+            <span id="char-count" class="char-count">0 / 1600</span>
+            <button type="submit" class="btn btn-primary" id="btn-send">Send SMS</button>
+          </div>
+        </form>
+        {% if mock_mode %}
+        <details class="mock-tools">
+          <summary>Mock tools</summary>
+          <form id="inject-form" class="inject-form">
+            <input type="tel" id="inject-phone" placeholder="From number" required />
+            <input type="text" id="inject-message" placeholder="Inbound message text" required />
+            <button type="submit" class="btn">Inject inbound SMS</button>
+          </form>
+        </details>
+        {% endif %}
+      </section>
+
+      <section class="inbox" aria-label="Message list">
+        <div id="toast" class="toast" hidden></div>
+        <div id="message-list" class="message-list">
+          <p class="empty">Loading messages…</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    window.APP_CONFIG = {
+      apiKeyRequired: {{ api_key_required | tojson }},
+      mockMode: {{ mock_mode | tojson }}
+    };
+  </script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
