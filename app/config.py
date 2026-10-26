@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     sim800c_auto_reconnect: bool = True
     sim800c_baudrate: int = 115200
     sim800c_timeout: float = 5.0
-    sim800c_mock: bool = True
+    sim800c_mock: bool = False
 
     host: str = "0.0.0.0"
     port: int = 8000
